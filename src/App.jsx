@@ -1,5 +1,5 @@
 import React from 'react'
-// import logo from './logo.svg'
+import Logo from './logo.svg'
 import styles from './App.less'
 console.log(styles)
 
@@ -8,8 +8,8 @@ function App() {
     <div className={styles.App}>
       {/* <Header name="typescript" color="#333" /> */}
       <header className={styles.header}>
-        {/* <img src={logo} className={styles.logo} alt="logo" /> */}
-        <p>
+        <Logo className={styles.logo} />
+        <p className="primary-color">
           Edit <code>src/App.tsx</code> and save to reload.
         </p>
         <a
