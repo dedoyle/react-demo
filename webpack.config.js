@@ -1,37 +1,64 @@
-const webpack = require('webpack')
 const path = require('path')
+// const glob = require('glob')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const ESLintPlugin = require('eslint-webpack-plugin')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
-const CssMinimizerPlugin = require('css-minimizer-webpack-plugin')
+// const PurgeCSSPlugin = require('purgecss-webpack-plugin')
+const { CleanWebpackPlugin } = require('clean-webpack-plugin')
 const CaseSensitivePathsPlugin = require('case-sensitive-paths-webpack-plugin')
 const TerserPlugin = require('terser-webpack-plugin')
+const CompressionPlugin = require('compression-webpack-plugin')
 const ReactRefreshWebpackPlugin = require('@pmmmwh/react-refresh-webpack-plugin')
+const webpack = require('webpack')
+
+const PATHS = {
+  src: path.join(__dirname, 'src'),
+}
 
 const resolve = (dir) => path.resolve(__dirname, dir)
 
-module.exports = (env) => {
+const hasJsxRuntime = (() => {
+  if (process.env.DISABLE_NEW_JSX_TRANSFORM === 'true') {
+    return false
+  }
+
+  try {
+    require.resolve('react/jsx-runtime')
+    return true
+  } catch (e) {
+    return false
+  }
+})()
+
+module.exports = (env, argv) => {
   const isEnvDev = env.development
   const isEnvProd = env.production
   process.env.BABEL_ENV = isEnvDev ? 'development' : 'production'
   process.env.NODE_ENV = isEnvDev ? 'development' : 'production'
 
   return {
+    // 修复 webpack-dev-server@3 的 bug
+    // target: isEnvDev ? 'web' : 'browserslist',
     mode: isEnvDev ? 'development' : 'production',
     // prod 模式下，只要出错就停止编译
     bail: isEnvProd,
     // 默认配置，无需写
     // entry: './src/index.js',
     output: {
-      path: resolve('dist'),
-      // 包名称
-      filename: 'js/[name].[contenthash:8].js',
+      // The build folder.
+      path: isEnvProd ? resolve('dist') : undefined,
+      // Add /* filename */ comments to generated require()s in the output.
+      // pathinfo: isEnvDev,
+      // // There will be one main bundle, and one file per asynchronous chunk.
+      // // In development, it does not produce real files.
+      filename: 'static/js/[name].js',
       // 块名，公共块名(非入口)
-      chunkFilename: 'js/[name].[contenthash:8].js',
-      publicPath: '',
+      chunkFilename: 'static/js/[name].chunk.js',
+      assetModuleFilename: 'static/media/[hash][ext][query]',
+      // 路径需要以 '/' 结束，否则文件资源无法获取到正确路径
+      publicPath: './',
     },
-    // 原始源代码（仅限行）
-    devtool: isEnvDev ? 'cheap-module-source-map' : 'none',
+    devtool: isEnvDev ? 'eval-cheap-source-map' : false,
     resolve: {
       extensions: ['.js', '.jsx', '.json', '.ts', '.tsx'],
       alias: {
@@ -41,107 +68,134 @@ module.exports = (env) => {
     module: {
       rules: [
         {
-          test: /\.css$/,
-          exclude: /node_modules/,
           oneOf: [
             {
-              resourceQuery: /modules/,
-              use: [
-                isEnvDev && require.resolve('style-loader'),
-                isEnvProd && {
-                  loader: MiniCssExtractPlugin.loader,
-                },
-                {loader: 'css-loader', options: {modules: true}},
-              ].filter(Boolean),
+              test: /\.(gif|png|jpg|jpeg)$/i,
+              // 导出一个资源的 data URI。之前通过使用 url-loader 实现
+              // 小于 8kb 的文件，将会视为 inline 模块类型，否则会被视为 resource 模块类型
+              type: 'asset',
+              // parser: {
+              //   dataUrlCondition: {
+              //     maxSize: 8 * 1024, // 8kb
+              //   },
+              // },
             },
             {
-              use: [
-                isEnvDev && require.resolve('style-loader'),
-                isEnvProd && {
-                  loader: MiniCssExtractPlugin.loader,
-                },
-                {loader: 'css-loader'},
-              ].filter(Boolean),
+              test: /\.svg$/,
+              use: ['@svgr/webpack'],
             },
-          ],
-        },
-        {
-          test: /\.less$/,
-          exclude: /node_modules/,
-          oneOf: [
             {
-              resourceQuery: /modules/,
-              use: [
-                isEnvDev && require.resolve('style-loader'),
-                isEnvProd && {
-                  loader: MiniCssExtractPlugin.loader,
-                },
-                {loader: 'css-loader', options: {modules: true}},
+              test: /\.css$/,
+              exclude: /node_modules/,
+              oneOf: [
                 {
-                  loader: 'less-loader',
-                  options: {lessOptions: {javascriptEnabled: true}},
+                  resourceQuery: /modules/,
+                  use: [
+                    isEnvDev && require.resolve('style-loader'),
+                    isEnvProd && {
+                      loader: MiniCssExtractPlugin.loader,
+                    },
+                    { loader: 'css-loader', options: { modules: true } },
+                  ].filter(Boolean),
                 },
-              ].filter(Boolean),
-            },
-            {
-              use: [
-                isEnvDev && require.resolve('style-loader'),
-                isEnvProd && {
-                  loader: MiniCssExtractPlugin.loader,
-                },
-                {loader: 'css-loader'},
                 {
-                  loader: 'less-loader',
-                  options: {lessOptions: {javascriptEnabled: true}},
+                  use: [
+                    isEnvDev && require.resolve('style-loader'),
+                    isEnvProd && {
+                      loader: MiniCssExtractPlugin.loader,
+                    },
+                    { loader: 'css-loader' },
+                  ].filter(Boolean),
                 },
-              ].filter(Boolean),
+              ],
             },
-          ],
-        },
-        {
-          test: /.[tj]sx?$/,
-          exclude: /node_modules/,
-          use: [
             {
-              loader: require.resolve('babel-loader'),
-              options: {
-                presets: ['@babel/preset-env', '@babel/preset-react'],
-                plugins: [
-                  '@umijs/babel-plugin-auto-css-modules',
-                  ['@babel/plugin-proposal-decorators', {legacy: true}],
-                  isEnvDev && require.resolve('react-refresh/babel'),
-                ].filter(Boolean),
+              test: /\.less$/,
+              exclude: /node_modules/,
+              oneOf: [
+                {
+                  resourceQuery: /modules/,
+                  use: [
+                    isEnvDev && require.resolve('style-loader'),
+                    isEnvProd && {
+                      loader: MiniCssExtractPlugin.loader,
+                    },
+                    { loader: 'css-loader', options: { modules: true } },
+                    {
+                      loader: 'less-loader',
+                      options: { lessOptions: { javascriptEnabled: true } },
+                    },
+                  ].filter(Boolean),
+                },
+                {
+                  use: [
+                    isEnvDev && require.resolve('style-loader'),
+                    isEnvProd && {
+                      loader: MiniCssExtractPlugin.loader,
+                    },
+                    { loader: 'css-loader' },
+                    {
+                      loader: 'less-loader',
+                      options: { lessOptions: { javascriptEnabled: true } },
+                    },
+                  ].filter(Boolean),
+                },
+              ],
+            },
+            {
+              test: /.[tj]sx?$/,
+              exclude: /node_modules/,
+              use: [
+                /**
+                 * plugin 在 preset 之前运行。
+                 * plugin 执行顺序是第一个到最后一个。
+                 * preset 顺序相反（从最后到第一个）。
+                 */
+                {
+                  loader: require.resolve('babel-loader'),
+                  options: {
+                    presets: [
+                      [
+                        require.resolve('babel-preset-react-app'),
+                        {
+                          runtime: hasJsxRuntime ? 'automatic' : 'classic',
+                        },
+                      ],
+                    ],
+                    plugins: [
+                      // import 'index.less' 说明是全局样式
+                      // import styles from 'index.less' 说明是 css module
+                      '@umijs/babel-plugin-auto-css-modules',
+                      ['@babel/plugin-proposal-decorators', { legacy: true }],
+                      isEnvDev && require.resolve('react-refresh/babel'),
+                    ].filter(Boolean),
+                    // This is a feature of `babel-loader` for webpack (not Babel itself).
+                    // It enables caching results in ./node_modules/.cache/babel-loader/
+                    // directory for faster rebuilds.
+                    cacheDirectory: true,
+                    // See #6846 for context on why cacheCompression is disabled
+                    cacheCompression: false,
+                    compact: isEnvProd,
+                  },
+                },
+              ],
+            },
+            {
+              // Exclude `js` files to keep "css" loader working as it injects
+              // its runtime that would otherwise be processed through "file" loader.
+              // Also exclude `html` and `json` extensions so they get processed
+              // by webpacks internal loaders.
+              exclude: [/\.(js|mjs|jsx|ts|tsx)$/, /\.html$/, /\.json$/],
+              type: 'asset/resource',
+              generator: {
+                filename: 'static/media/[hash][ext][query]',
               },
             },
           ],
         },
-        {
-          test: /\.svg$/,
-          use: ['@svgr/webpack'],
-          generator: {
-            filename: 'assets/[hash:8].[name][ext]',
-          },
-        },
-        {
-          test: /\.(?:ico|gif|png|jpg|jpeg)$/i,
-          // 发送一个单独的文件并导出 URL。之前通过使用 file-loader 实现
-          type: 'asset/resource',
-          generator: {
-            filename: 'assets/[hash:8].[name][ext]',
-          },
-        },
-        {
-          test: /\.(woff(2)?|eot|ttf|otf|)$/,
-          // 导出一个资源的 data URI。之前通过使用 url-loader 实现
-          type: 'asset/inline',
-        },
       ],
     },
     optimization: {
-      // 被哈希转化成的小位数值模块名，有益于长期缓存，默认不开启
-      moduleIds: isEnvProd && 'deterministic',
-      // 在不同的编译中不变的短数字 id，有益于长期缓存，生产环境中默认开启
-      // chunkIds: 'deterministic',
       minimize: isEnvProd,
       minimizer: [
         new TerserPlugin({
@@ -181,15 +235,24 @@ module.exports = (env) => {
             },
           },
         }),
-        // For webpack@5 you can use the `...` syntax to extend existing minimizers (i.e. `terser-webpack-plugin`), uncomment the next line
-        // `...`,
-        new CssMinimizerPlugin(),
       ],
+      // Automatically split vendor and commons
+      // https://twitter.com/wSokra/status/969633336732905474
+      // https://medium.com/webpack/webpack-4-code-splitting-chunk-graph-and-the-splitchunks-optimization-be739a861366
+      splitChunks: {
+        chunks: 'all',
+        name: false,
+      },
+      // Keep the runtime chunk separated to enable long term caching
+      // https://twitter.com/wSokra/status/969679223278505985
+      // https://github.com/facebook/create-react-app/issues/5358
+      runtimeChunk: {
+        name: (entrypoint) => `runtime-${entrypoint.name}`,
+      },
     },
     plugins: [
       new ESLintPlugin(),
-      new HtmlWebpackPlugin({template: resolve('./public/index.html')}),
-      // new ModuleNotFoundPlugin(paths.appPath),
+      new HtmlWebpackPlugin({ template: resolve('./public/index.html') }),
       isEnvDev && new CaseSensitivePathsPlugin(),
       isEnvDev && new webpack.HotModuleReplacementPlugin(),
       isEnvDev && new ReactRefreshWebpackPlugin(),
@@ -199,22 +262,30 @@ module.exports = (env) => {
           verbose: false, //开启在控制台输出信息
         }),
       isEnvProd &&
-        new PurgecssPlugin({
-          paths: paths.appSrc,
+        new MiniCssExtractPlugin({
+          filename: 'css/[name].[contenthash:8].css',
+          chunkFilename: 'css/[name].[contenthash:8].css',
         }),
+      // isEnvProd &&
+      //   new PurgeCSSPlugin({
+      //     paths: glob.sync(`${PATHS.src}/**/*`, {nodir: true}),
+      //   }),
       isEnvProd &&
         new CompressionPlugin({
           test: /\.(js|css)$/i,
           algorithm: 'gzip',
           threshold: 10240, // Byte
         }),
-      new webpack.DllReferencePlugin({
-        context: process.cwd(),
-        manifest: require(resolve('./public/vendor/vendorReact-manifest.json')),
-        name: 'vendor/vendorReact.dll.js',
-        scope: 'react',
-        sourceType: 'commonjs2',
-      }),
+      isEnvProd &&
+        new webpack.DllReferencePlugin({
+          context: process.cwd(),
+          manifest: require(resolve(
+            './public/vendor/vendorReact-manifest.json',
+          )),
+          name: 'vendor/vendorReact.dll.js',
+          scope: 'react',
+          sourceType: 'commonjs2',
+        }),
     ].filter(Boolean),
     cache: isEnvDev && {
       type: 'filesystem',
