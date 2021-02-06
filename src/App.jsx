@@ -23,11 +23,15 @@ function App() {
     <div className={styles.App}>
       {/* <Header name="typescript" color="#333" /> */}
       <header className={styles.header}>
-        <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
         <div className={styles.slider}>
           <Logo className={styles.logo} />
           <img src={wukong} alt="wukong" />
-          <img src={smallJpg} alt="smalljpg"/>
+          <img src={smallJpg} alt="smalljpg" />
         </div>
         <button
           onClick={() =>

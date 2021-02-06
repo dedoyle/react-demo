@@ -2,6 +2,7 @@ const path = require('path')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const ESLintPlugin = require('eslint-webpack-plugin')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
+const postcssPresetEnv = require('postcss-preset-env')
 const { CleanWebpackPlugin } = require('clean-webpack-plugin')
 const CaseSensitivePathsPlugin = require('case-sensitive-paths-webpack-plugin')
 const TerserPlugin = require('terser-webpack-plugin')
@@ -33,18 +34,55 @@ const hasJsxRuntime = (() => {
   }
 })()
 
-// 暂时未能实现，先置为 false
-const shouldUseRefresh = false
-
 module.exports = (env, argv) => {
   const isEnvDev = env.development
   const isEnvProd = env.production
   process.env.BABEL_ENV = isEnvDev ? 'development' : 'production'
   process.env.NODE_ENV = isEnvDev ? 'development' : 'production'
 
+  // 暂时未能实现，先置为 false
+  const shouldUseReactRefresh = isEnvDev && false
+
+  const getStyleLoaders = (cssOptions = {}, preProcessor = []) => {
+    const loaders = [
+      isEnvDev && require.resolve('style-loader'),
+      isEnvProd && {
+        loader: MiniCssExtractPlugin.loader,
+      },
+      {
+        loader: 'css-loader',
+        options: {
+          ...cssOptions,
+          importLoaders: preProcessor ? 2 : 1,
+        },
+      },
+      {
+        loader: 'postcss-loader',
+        options: {
+          postcssOptions: {
+            // Necessary for external CSS imports to work
+            // https://github.com/facebook/create-react-app/issues/2677
+            ident: 'postcss',
+            plugins: [
+              require('postcss-flexbugs-fixes'),
+              postcssPresetEnv({
+                autoprefixer: {
+                  flexbox: 'no-2009',
+                },
+                stage: 3,
+              }),
+            ],
+            sourceMap: isEnvDev,
+          },
+        },
+      },
+    ].filter(Boolean)
+    return loaders.concat(preProcessor)
+  }
+
   return {
-    // 修复 webpack-dev-server@3 的 bug
-    target: isEnvDev ? 'web' : 'browserslist',
+    // react refresh 修复 webpack-dev-server@3 的 bug
+    // target: isEnvDev ? 'web' : 'browserslist',
     mode: isEnvDev ? 'development' : 'production',
     // prod 模式下，只要出错就停止编译
     bail: isEnvProd,
@@ -94,22 +132,10 @@ module.exports = (env, argv) => {
               oneOf: [
                 {
                   resourceQuery: /modules/,
-                  use: [
-                    isEnvDev && require.resolve('style-loader'),
-                    isEnvProd && {
-                      loader: MiniCssExtractPlugin.loader,
-                    },
-                    { loader: 'css-loader', options: { modules: true } },
-                  ].filter(Boolean),
+                  use: getStyleLoaders({ modules: true }),
                 },
                 {
-                  use: [
-                    isEnvDev && require.resolve('style-loader'),
-                    isEnvProd && {
-                      loader: MiniCssExtractPlugin.loader,
-                    },
-                    { loader: 'css-loader' },
-                  ].filter(Boolean),
+                  use: getStyleLoaders({}),
                 },
               ],
             },
@@ -119,33 +145,20 @@ module.exports = (env, argv) => {
               oneOf: [
                 {
                   resourceQuery: /modules/,
-                  use: [
-                    isEnvDev && require.resolve('style-loader'),
-                    isEnvProd && {
-                      loader: MiniCssExtractPlugin.loader,
-                    },
-                    {
-                      loader: 'css-loader',
-                      options: { modules: true, importLoaders: 1 },
-                    },
+                  use: getStyleLoaders({ modules: true }, [
                     {
                       loader: 'less-loader',
                       options: { lessOptions: { javascriptEnabled: true } },
                     },
-                  ].filter(Boolean),
+                  ]),
                 },
                 {
-                  use: [
-                    isEnvDev && require.resolve('style-loader'),
-                    isEnvProd && {
-                      loader: MiniCssExtractPlugin.loader,
-                    },
-                    { loader: 'css-loader', options: { importLoaders: 1 } },
+                  use: getStyleLoaders({}, [
                     {
                       loader: 'less-loader',
                       options: { lessOptions: { javascriptEnabled: true } },
                     },
-                  ].filter(Boolean),
+                  ]),
                 },
               ],
             },
@@ -174,7 +187,9 @@ module.exports = (env, argv) => {
                       // import styles from 'index.less' 说明是 css module
                       '@umijs/babel-plugin-auto-css-modules',
                       ['@babel/plugin-proposal-decorators', { legacy: true }],
-                      isEnvDev && shouldUseReactRefresh && require.resolve('react-refresh/babel'),
+                      isEnvDev &&
+                        shouldUseReactRefresh &&
+                        require.resolve('react-refresh/babel'),
                     ].filter(Boolean),
                     // This is a feature of `babel-loader` for webpack (not Babel itself).
                     // It enables caching results in ./node_modules/.cache/babel-loader/
