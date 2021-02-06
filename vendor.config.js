@@ -1,6 +1,6 @@
 const path = require('path')
 const webpack = require('webpack')
-const {CleanWebpackPlugin} = require('clean-webpack-plugin')
+const { CleanWebpackPlugin } = require('clean-webpack-plugin')
 const CompressionPlugin = require('compression-webpack-plugin')
 // const BundleAnalyzerPlugin = require('webpack-bundle-analyzer')
 //   .BundleAnalyzerPlugin
@@ -29,10 +29,10 @@ module.exports = {
   },
   output: {
     path: path.resolve(__dirname, dllPath),
-    filename: '[name].dll.js',
+    filename: '[name].[chunkhash].js',
     // vendor.dll.js中暴露出的全局变量名
     // 保持与 webpack.DllPlugin 中名称一致
-    library: '[name]_[hash]',
+    library: '[name]_[chunkhash]',
   },
   plugins: [
     // 清除之前的dll文件
@@ -48,7 +48,7 @@ module.exports = {
     new webpack.DllPlugin({
       path: path.join(__dirname, dllPath, '[name]-manifest.json'),
       // 保持与 output.library 中名称一致
-      name: '[name]_[hash]',
+      name: '[name]_[chunkhash]',
       context: process.cwd(),
     }),
     new CompressionPlugin({

@@ -1,4 +1,4 @@
-import React, {useState} from 'react'
+import React, { useState } from 'react'
 import Logo from './logo.svg'
 import styles from './App.less'
 import wukong from './imgs/wukong.jpg'
@@ -17,14 +17,18 @@ const getList = () => {
 }
 
 function App() {
-  const [list, setList] = useState([{id: '30k', name: 'dong'}])
+  const [list, setList] = useState([{ id: '30k', name: 'dong' }])
+  const [name, setName] = useState('dong')
   return (
     <div className={styles.App}>
       {/* <Header name="typescript" color="#333" /> */}
       <header className={styles.header}>
-        <Logo className={styles.logo} />
-        <img src={wukong} alt="wukong"/>
-        <img src={smallJpg} alt="smalljpg"/>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+        <div className={styles.slider}>
+          <Logo className={styles.logo} />
+          <img src={wukong} alt="wukong" />
+          <img src={smallJpg} alt="smalljpg"/>
+        </div>
         <button
           onClick={() =>
             getList().then((data) => {

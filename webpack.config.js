@@ -1,9 +1,7 @@
 const path = require('path')
-// const glob = require('glob')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const ESLintPlugin = require('eslint-webpack-plugin')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
-// const PurgeCSSPlugin = require('purgecss-webpack-plugin')
 const { CleanWebpackPlugin } = require('clean-webpack-plugin')
 const CaseSensitivePathsPlugin = require('case-sensitive-paths-webpack-plugin')
 const TerserPlugin = require('terser-webpack-plugin')
@@ -11,11 +9,16 @@ const CompressionPlugin = require('compression-webpack-plugin')
 const ReactRefreshWebpackPlugin = require('@pmmmwh/react-refresh-webpack-plugin')
 const webpack = require('webpack')
 
-const PATHS = {
-  src: path.join(__dirname, 'src'),
-}
-
 const resolve = (dir) => path.resolve(__dirname, dir)
+
+const PATHS = {
+  appPath: resolve('.'),
+  appSrc: resolve('src'),
+  appDist: resolve('dist'),
+  appPublic: resolve('public'),
+  appHtml: resolve('public/index.html'),
+  publicUrlOrPath: './',
+}
 
 const hasJsxRuntime = (() => {
   if (process.env.DISABLE_NEW_JSX_TRANSFORM === 'true') {
@@ -30,6 +33,9 @@ const hasJsxRuntime = (() => {
   }
 })()
 
+// 暂时未能实现，先置为 false
+const shouldUseRefresh = false
+
 module.exports = (env, argv) => {
   const isEnvDev = env.development
   const isEnvProd = env.production
@@ -38,7 +44,7 @@ module.exports = (env, argv) => {
 
   return {
     // 修复 webpack-dev-server@3 的 bug
-    // target: isEnvDev ? 'web' : 'browserslist',
+    target: isEnvDev ? 'web' : 'browserslist',
     mode: isEnvDev ? 'development' : 'production',
     // prod 模式下，只要出错就停止编译
     bail: isEnvProd,
@@ -46,23 +52,21 @@ module.exports = (env, argv) => {
     // entry: './src/index.js',
     output: {
       // The build folder.
-      path: isEnvProd ? resolve('dist') : undefined,
-      // Add /* filename */ comments to generated require()s in the output.
-      // pathinfo: isEnvDev,
-      // // There will be one main bundle, and one file per asynchronous chunk.
-      // // In development, it does not produce real files.
+      path: isEnvProd ? PATHS.appDist : undefined,
       filename: 'static/js/[name].js',
       // 块名，公共块名(非入口)
       chunkFilename: 'static/js/[name].chunk.js',
       assetModuleFilename: 'static/media/[hash][ext][query]',
-      // 路径需要以 '/' 结束，否则文件资源无法获取到正确路径
-      publicPath: './',
+      // dev-server 的默认 publicPath 为 '/'
+      // 确保 devServer.publicPath 始终以正斜杠开头和结尾。
+      // 建议 devServer.publicPath 与 output.publicPath 相同
+      publicPath: isEnvDev ? '/' : PATHS.publicUrlOrPath,
     },
     devtool: isEnvDev ? 'eval-cheap-source-map' : false,
     resolve: {
       extensions: ['.js', '.jsx', '.json', '.ts', '.tsx'],
       alias: {
-        '@': resolve('src'),
+        '@': PATHS.appSrc,
       },
     },
     module: {
@@ -120,7 +124,10 @@ module.exports = (env, argv) => {
                     isEnvProd && {
                       loader: MiniCssExtractPlugin.loader,
                     },
-                    { loader: 'css-loader', options: { modules: true } },
+                    {
+                      loader: 'css-loader',
+                      options: { modules: true, importLoaders: 1 },
+                    },
                     {
                       loader: 'less-loader',
                       options: { lessOptions: { javascriptEnabled: true } },
@@ -133,7 +140,7 @@ module.exports = (env, argv) => {
                     isEnvProd && {
                       loader: MiniCssExtractPlugin.loader,
                     },
-                    { loader: 'css-loader' },
+                    { loader: 'css-loader', options: { importLoaders: 1 } },
                     {
                       loader: 'less-loader',
                       options: { lessOptions: { javascriptEnabled: true } },
@@ -167,7 +174,7 @@ module.exports = (env, argv) => {
                       // import styles from 'index.less' 说明是 css module
                       '@umijs/babel-plugin-auto-css-modules',
                       ['@babel/plugin-proposal-decorators', { legacy: true }],
-                      isEnvDev && require.resolve('react-refresh/babel'),
+                      isEnvDev && shouldUseReactRefresh && require.resolve('react-refresh/babel'),
                     ].filter(Boolean),
                     // This is a feature of `babel-loader` for webpack (not Babel itself).
                     // It enables caching results in ./node_modules/.cache/babel-loader/
@@ -252,10 +259,10 @@ module.exports = (env, argv) => {
     },
     plugins: [
       new ESLintPlugin(),
-      new HtmlWebpackPlugin({ template: resolve('./public/index.html') }),
+      new HtmlWebpackPlugin({ template: PATHS.appHtml }),
       isEnvDev && new CaseSensitivePathsPlugin(),
       isEnvDev && new webpack.HotModuleReplacementPlugin(),
-      isEnvDev && new ReactRefreshWebpackPlugin(),
+      isEnvDev && shouldUseReactRefresh && new ReactRefreshWebpackPlugin(),
       isEnvProd &&
         new CleanWebpackPlugin({
           // verbose Write logs to console.
@@ -266,39 +273,37 @@ module.exports = (env, argv) => {
           filename: 'css/[name].[contenthash:8].css',
           chunkFilename: 'css/[name].[contenthash:8].css',
         }),
-      // isEnvProd &&
-      //   new PurgeCSSPlugin({
-      //     paths: glob.sync(`${PATHS.src}/**/*`, {nodir: true}),
-      //   }),
       isEnvProd &&
         new CompressionPlugin({
           test: /\.(js|css)$/i,
           algorithm: 'gzip',
           threshold: 10240, // Byte
         }),
-      isEnvProd &&
-        new webpack.DllReferencePlugin({
-          context: process.cwd(),
-          manifest: require(resolve(
-            './public/vendor/vendorReact-manifest.json',
-          )),
-          name: 'vendor/vendorReact.dll.js',
-          scope: 'react',
-          sourceType: 'commonjs2',
-        }),
+      // new webpack.DllReferencePlugin({
+      //   context: process.cwd(),
+      //   manifest: require(resolve(
+      //     './public/vendor/vendorReact-manifest.json',
+      //   )),
+      //   name: 'vendor/vendorReact.dll.js',
+      //   scope: 'react',
+      //   sourceType: 'commonjs2',
+      // }),
     ].filter(Boolean),
     cache: isEnvDev && {
       type: 'filesystem',
       // cacheDirectory Base directory for the cache. Defaults to node_modules/.cache/webpack
     },
     devServer: {
-      open: true,
       https: env.http,
-      hot: true,
+      publicPath: '/', // 此路径下的打包文件可在浏览器中访问
+      port: '3000',
       overlay: true, // 浏览器页面上显示错误
+      open: true, // 自动打开浏览器
       stats: 'errors-only', //stats: "errors-only"表示只打印错误：
       historyApiFallback: false, // 404 会被替代为 index.html
       inline: true, // 内联模式，实时刷新
+      hot: true, // 开启热更新
+      hotOnly: true, // 启用热模块替换，而无需页面刷新作为构建失败时的回退
       compress: true, // gzip
       // proxy: {
       //   '/api': {
