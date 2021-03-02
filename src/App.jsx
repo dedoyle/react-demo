@@ -3,6 +3,8 @@ import Logo from './logo.svg'
 import styles from './App.less'
 import wukong from './imgs/wukong.jpg'
 import smallJpg from './imgs/5kb.jpg'
+import List from './components/List'
+import ListOld from './components/ListOld'
 
 const getData = (delay, data) =>
   new Promise((resolve) => setTimeout(() => resolve(data), delay))
@@ -17,7 +19,6 @@ const getList = () => {
 }
 
 function App() {
-  const [list, setList] = useState([{ id: '30k', name: 'dong' }])
   const [name, setName] = useState('dong')
   return (
     <div className={styles.App}>
@@ -33,7 +34,7 @@ function App() {
           <img src={wukong} alt="wukong" />
           <img src={smallJpg} alt="smalljpg" />
         </div>
-        <button
+        {/* <button
           onClick={() =>
             getList().then((data) => {
               console.log(data)
@@ -42,12 +43,9 @@ function App() {
           }
         >
           加载列表
-        </button>
-        <ul>
-          {list.map((item) => (
-            <li key={item.id}>{item.name}</li>
-          ))}
-        </ul>
+        </button> */}
+        {/* <List /> */}
+        <ListOld />
       </header>
     </div>
   )
