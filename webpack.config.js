@@ -8,6 +8,8 @@ const CaseSensitivePathsPlugin = require('case-sensitive-paths-webpack-plugin')
 const TerserPlugin = require('terser-webpack-plugin')
 const CompressionPlugin = require('compression-webpack-plugin')
 const ReactRefreshWebpackPlugin = require('@pmmmwh/react-refresh-webpack-plugin')
+const { GenerateSW } = require('workbox-webpack-plugin')
+const InterpolateHtmlPlugin = require('interpolate-html-plugin')
 const webpack = require('webpack')
 
 const resolve = (dir) => path.resolve(__dirname, dir)
@@ -19,6 +21,45 @@ const PATHS = {
   appPublic: resolve('public'),
   appHtml: resolve('public/index.html'),
   publicUrlOrPath: './',
+}
+
+// Grab NODE_ENV and REACT_APP_* environment variables and prepare them to be
+// injected into the application via DefinePlugin in webpack configuration.
+const REACT_APP = /^REACT_APP_/i
+
+function getClientEnvironment(publicUrl) {
+  const raw = Object.keys(process.env)
+    .filter((key) => REACT_APP.test(key))
+    .reduce(
+      (env, key) => {
+        env[key] = process.env[key]
+        return env
+      },
+      {
+        // Useful for determining whether we’re running in production mode.
+        // Most importantly, it switches React into the correct mode.
+        NODE_ENV: process.env.NODE_ENV || 'development',
+        // Useful for resolving the correct path to static assets in `public`.
+        // For example, <img src={process.env.PUBLIC_URL + '/img/logo.png'} />.
+        // This should only be used as an escape hatch. Normally you would put
+        // images into the `src` and `import` them in code to get their paths.
+        PUBLIC_URL: publicUrl,
+        // Whether or not react-refresh is enabled.
+        // react-refresh is not 100% stable at this time,
+        // which is why it's disabled by default.
+        // It is defined here so it is available in the webpackHotDevClient.
+        FAST_REFRESH: process.env.FAST_REFRESH !== 'false',
+      },
+    )
+  // Stringify all values so we can feed into webpack DefinePlugin
+  const stringified = {
+    'process.env': Object.keys(raw).reduce((env, key) => {
+      env[key] = JSON.stringify(raw[key])
+      return env
+    }, {}),
+  }
+
+  return { raw, stringified }
 }
 
 const hasJsxRuntime = (() => {
@@ -34,14 +75,16 @@ const hasJsxRuntime = (() => {
   }
 })()
 
-module.exports = (env, argv) => {
+module.exports = (env) => {
   const isEnvDev = env.development
   const isEnvProd = env.production
   process.env.BABEL_ENV = isEnvDev ? 'development' : 'production'
   process.env.NODE_ENV = isEnvDev ? 'development' : 'production'
 
+  const clientEnv = getClientEnvironment(PATHS.publicUrlOrPath.slice(0, -1))
+  console.log(clientEnv)
   // 暂时未能实现，先置为 false
-  const shouldUseReactRefresh = isEnvDev && false
+  const shouldUseReactRefresh = clientEnv.raw.FAST_REFRESH
 
   const getStyleLoaders = (cssOptions = {}, preProcessor = []) => {
     const loaders = [
@@ -82,7 +125,7 @@ module.exports = (env, argv) => {
 
   return {
     // react refresh 修复 webpack-dev-server@3 的 bug
-    // target: isEnvDev ? 'web' : 'browserslist',
+    target: isEnvDev ? 'web' : 'browserslist',
     mode: isEnvDev ? 'development' : 'production',
     // prod 模式下，只要出错就停止编译
     bail: isEnvProd,
@@ -274,7 +317,45 @@ module.exports = (env, argv) => {
     },
     plugins: [
       new ESLintPlugin(),
-      new HtmlWebpackPlugin({ template: PATHS.appHtml }),
+      // Makes some environment variables available in index.html.
+      // The public URL is available as %PUBLIC_URL% in index.html, e.g.:
+      // <link rel="icon" href="%PUBLIC_URL%/favicon.ico">
+      // It will be an empty string unless you specify "homepage"
+      // in `package.json`, in which case it will be the pathname of that URL.
+      new InterpolateHtmlPlugin(clientEnv.raw),
+      // Generates an `index.html` file with the <script> injected.
+      new HtmlWebpackPlugin(
+        Object.assign(
+          {},
+          {
+            inject: true,
+            template: PATHS.appHtml,
+          },
+          isEnvProd
+            ? {
+                minify: {
+                  removeComments: true,
+                  collapseWhitespace: true,
+                  removeRedundantAttributes: true,
+                  useShortDoctype: true,
+                  removeEmptyAttributes: true,
+                  removeStyleLinkTypeAttributes: true,
+                  keepClosingSlash: true,
+                  minifyJS: true,
+                  minifyCSS: true,
+                  minifyURLs: true,
+                },
+              }
+            : undefined,
+        ),
+      ),
+      // Makes some environment variables available to the JS code, for example:
+      // if (process.env.NODE_ENV === 'production') { ... }. See `./env.js`.
+      // It is absolutely essential that NODE_ENV is set to production
+      // during a production build.
+      // Otherwise React will be compiled in the very slow development mode.
+      new webpack.DefinePlugin(clientEnv.stringified),
+      new webpack.IgnorePlugin(/^\.\/locale$/, /moment$/),
       isEnvDev && new CaseSensitivePathsPlugin(),
       isEnvDev && new webpack.HotModuleReplacementPlugin(),
       isEnvDev && shouldUseReactRefresh && new ReactRefreshWebpackPlugin(),
@@ -293,6 +374,14 @@ module.exports = (env, argv) => {
           test: /\.(js|css)$/i,
           algorithm: 'gzip',
           threshold: 10240, // Byte
+        }),
+      isEnvProd &&
+        new GenerateSW({
+          // 这些选项帮助快速启用 ServiceWorkers
+          // 不允许遗留任何“旧的” ServiceWorkers
+          clientsClaim: true,
+          // 安装成功后立即接管网站
+          skipWaiting: true,
         }),
       // new webpack.DllReferencePlugin({
       //   context: process.cwd(),
@@ -318,7 +407,7 @@ module.exports = (env, argv) => {
       historyApiFallback: false, // 404 会被替代为 index.html
       inline: true, // 内联模式，实时刷新
       hot: true, // 开启热更新
-      hotOnly: true, // 启用热模块替换，而无需页面刷新作为构建失败时的回退
+      // hotOnly: true, // 启用热模块替换，而无需页面刷新作为构建失败时的回退
       compress: true, // gzip
       // proxy: {
       //   '/api': {
